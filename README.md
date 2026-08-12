@@ -11,19 +11,27 @@ deploys as static files to any free host.
 
 | | |
 |---|---|
+| Repository | https://github.com/mickjerin-bits/Agile-P13-Medlog |
 | Jira board | https://wilp-agile-group9.atlassian.net/jira/software/projects/AP/boards/2 |
 | Sprint 1 goal | Record upload, secure storage, patient dashboard |
 | Sprint 2 goal | Doctor access, analytics, reminders |
 | Stack | React 19 · Vite · TypeScript · Web Crypto · localStorage |
+| Sprint 1 backlog | [docs/sprint-1-backlog.md](docs/sprint-1-backlog.md) — 15 items, 55 points, all Done |
 
 ## Quick start
 
 ```bash
-cd frontend && npm install && npm run dev
+git clone https://github.com/mickjerin-bits/Agile-P13-Medlog.git
+cd Agile-P13-Medlog/frontend && npm install && npm run dev
 ```
 
-Open http://localhost:5173, create a patient account, and upload a record. On an empty dashboard
-there is an **Add four sample records** button that seeds a realistic record set for a demo.
+Open http://localhost:5173 and press **Open the demo patient** — that creates
+`asha.rao@medlog.test` (password `DemoPass123!`) with four sample records, so there is nothing to
+set up before there is something to look at. Registering your own account works too.
+
+Accounts live in the `localStorage` of the browser that created them, so they do not carry across
+browsers, devices or incognito windows. Typing the demo credentials in a browser that has never
+used MedLog creates that account on the spot.
 
 Everything lives in your browser. To wipe it, clear site data for `localhost:5173`, or run
 `api.resetEverything()` from the console.
@@ -85,6 +93,21 @@ protection for real patient data. Proper key custody needs the server that arriv
 | Patient can download a record | `api.downloadRecord` | `mock/api.test.ts` |
 | Patient can delete a record | `api.deleteRecord` | `mock/api.test.ts` |
 | No patient can reach another patient's record | Owner filter on every read + per-user key | `mock/api.test.ts` (isolation suite) |
+
+## Agile artefacts
+
+| Artefact | Where |
+|---|---|
+| Sprint 1 backlog, acceptance criteria (Given–When–Then), QA verification notes | [docs/sprint-1-backlog.md](docs/sprint-1-backlog.md) |
+| Jira bulk-import of the same backlog (status + QA comments included) | [docs/jira-import.csv](docs/jira-import.csv) |
+| Requirements and design baseline produced before development | [architecture/epic-0-requirements-and-design.md](architecture/epic-0-requirements-and-design.md) |
+| Architecture, data model, security decisions | [architecture/README.md](architecture/README.md) |
+| Continuous integration | [.github/workflows/ci.yml](.github/workflows/ci.yml) |
+
+Sprint 1 closed **15 items / 55 story points**, including one mid-sprint scope change (dropping the
+server for a browser-side mock), one defect found during review preparation, and one security gap
+found during testing — record metadata was being stored readable while only the attachment was
+encrypted. All three are tracked as their own items rather than folded silently into other work.
 
 ## Deploying the demo
 
