@@ -16,7 +16,7 @@ deploys as static files to any free host.
 | Sprint 1 goal | Record upload, secure storage, patient dashboard |
 | Sprint 2 goal | Doctor access, analytics, reminders |
 | Stack | React 19 · Vite · TypeScript · Web Crypto · localStorage |
-| Sprint 1 backlog | [docs/sprint-1-backlog.md](docs/sprint-1-backlog.md) — 15 items, 55 points, all Done |
+| Sprint 1 backlog | [docs/sprint-1-backlog.md](docs/sprint-1-backlog.md) — 16 items, 58 points, all Done |
 
 ## Quick start
 
@@ -42,7 +42,8 @@ Everything lives in your browser. To wipe it, clear site data for `localhost:517
 cd frontend && npm test
 ```
 
-50 tests (Vitest + Testing Library): the mock API, the Web Crypto layer, and the components.
+99 tests across 11 files (Vitest + Testing Library): the mock API, the Web Crypto layer, the
+session context, and every page and component.
 Typecheck, tests and the production build run on every push via
 [GitHub Actions](.github/workflows/ci.yml), which also uploads the built `dist/` as an artifact.
 
@@ -104,7 +105,7 @@ protection for real patient data. Proper key custody needs the server that arriv
 | Architecture, data model, security decisions | [architecture/README.md](architecture/README.md) |
 | Continuous integration | [.github/workflows/ci.yml](.github/workflows/ci.yml) |
 
-Sprint 1 closed **15 items / 55 story points**, including one mid-sprint scope change (dropping the
+Sprint 1 closed **16 items / 58 story points**, including one mid-sprint scope change (dropping the
 server for a browser-side mock), one defect found during review preparation, and one security gap
 found during testing — record metadata was being stored readable while only the attachment was
 encrypted. All three are tracked as their own items rather than folded silently into other work.

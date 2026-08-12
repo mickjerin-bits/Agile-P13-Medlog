@@ -3,7 +3,7 @@
 MedLog - Health Record Tracker · BITS WILP Agile Software Processes (S2-25 SECLZG544) · Group 9
 
 **Sprint goal:** record upload, secure storage, patient dashboard.  
-**Committed and delivered:** 15 items, 55 story points. All items Done.
+**Committed and delivered:** 16 items, 58 story points. All items Done.
 
 Every item below carries acceptance criteria in Given-When-Then form and a QA verification note
 recording how it was tested. Import these into Jira with `jira-import.csv` in this folder.
@@ -36,8 +36,9 @@ Delivered as a frontend-only prototype: React 19 + Vite + TypeScript, with the A
 | DEMO | Reviewer can open a populated demo account in one click | Task | 2 | Done |
 | BUG-DEMO-LOGIN | Published demo credentials are rejected in a browser that has not used the app | Bug | 1 | Done |
 | ARCH | Replace the server backend with a browser-side mock | Task | 5 | Done |
+| TEST | Unit test coverage for the session context and every page | Task | 3 | Done |
 | CI | Every push is typechecked, tested and built automatically | Task | 2 | Done |
-| | **Total** | | **55** | |
+| | **Total** | | **58** | |
 
 ## Items
 
@@ -654,7 +655,65 @@ Full journey re-tested end to end after the migration - demo sign-in, upload, se
 
 Production build succeeds and emits a static bundle (index.html plus hashed CSS and JS assets).
 
-Full suite green: 58 tests across 5 files.
+Full suite green: 99 tests across 5 files.
+
+---
+
+### TEST · Unit test coverage for the session context and every page
+
+**Type:** Task · **Story points:** 3 · **Status:** Done · **Epic:** MedLog Sprint 1 - Secure Patient Record Vault (MVP)
+
+**Description**
+
+As a team
+We want the untested layer covered by unit tests
+So that the increment has real quality evidence and a regression safety net for Sprint 2.
+
+Coverage review at the end of the sprint found the mock API, the crypto layer and three components
+under test, but the session context and all four pages untested - so a change to sign-in routing or
+a page's error handling could break silently.
+
+Adds unit tests for AuthContext, LoginPage, RegisterPage, DashboardPage, RecordsPage and AppShell,
+plus a shared test-utils module so a page can be rendered with a signed-in patient without
+duplicating setup in every file.
+
+**Acceptance criteria**
+
+Given the test suite is run
+When it completes
+Then the session context, every page and every component has at least one test covering its
+success path and its failure path.
+
+Given a page fails to load its data
+When its test runs
+Then the test asserts the patient is shown an error message rather than a blank screen.
+
+Given a component assumes a signed-in patient
+When it is unit tested
+Then it is rendered behind the same session gate the application uses, so the test reflects how the
+component is really mounted.
+
+Given the suite is run in continuous integration
+When any test fails
+Then the build fails and the failing test is named in the log.
+
+**QA verification**
+
+Coverage gap confirmed before the work: mock API, crypto and three components were tested, while
+AuthContext, LoginPage, RegisterPage, DashboardPage, RecordsPage and AppShell had no tests at all.
+
+After the work the suite is 99 tests across 11 files, all passing, with typecheck clean. Verified
+that each new file covers both a success and a failure path - for example RecordsPage asserts the
+list renders, that filter and search reach the API, that search is debounced rather than firing per
+keystroke, and that a load failure shows "Could not load your records."
+
+Two harness problems were found and fixed rather than worked around. Rendering AppShell and
+DashboardPage bare gave a null patient on first paint, because the application only mounts them
+after the session resolves - the tests now render behind the same gate. The Password field's label
+includes its hint text, so an exact label match could not find it; the test now matches on the label
+prefix.
+
+Full suite re-run after the fixes: 99 passed, 0 failed.
 
 ---
 
@@ -690,7 +749,7 @@ Then its result is visible on the pull request before merge.
 
 **QA verification**
 
-Workflow reviewed and the same three commands run locally in a clean checkout, all passing: typecheck clean, 58 tests green, production build emitting index.html plus hashed assets.
+Workflow reviewed and the same three commands run locally in a clean checkout, all passing: typecheck clean, 99 tests green, production build emitting index.html plus hashed assets.
 
 Node version pinned to 22 with npm caching keyed on the lockfile, so CI installs are reproducible rather than resolving fresh versions each run.
 

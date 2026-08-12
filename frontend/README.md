@@ -15,7 +15,7 @@ Runs on http://localhost:5173. No server, no database, no environment variables.
 | Command | Does |
 |---|---|
 | `npm run dev` | Vite dev server with HMR |
-| `npm test` | 50 Vitest + Testing Library tests |
+| `npm test` | 99 Vitest + Testing Library tests |
 | `npm run typecheck` | `tsc -b --noEmit` |
 | `npm run build` | Static bundle into `dist/` |
 
