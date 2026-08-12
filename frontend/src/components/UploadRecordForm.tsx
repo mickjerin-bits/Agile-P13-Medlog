@@ -1,12 +1,12 @@
 import { useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
-import { ApiError, api } from '../api/client';
+import { ApiError, MAX_UPLOAD_BYTES, api } from '../mock/api';
 import { RECORD_TYPES, RECORD_TYPE_LABELS } from '../types';
 import type { MedicalRecord, RecordType } from '../types';
 
-const MAX_BYTES = 10 * 1024 * 1024;
-
 const ACCEPTED = '.pdf,.jpg,.jpeg,.png,.webp,.txt';
+
+const MAX_LABEL = `${(MAX_UPLOAD_BYTES / 1_000_000).toFixed(1)} MB`;
 
 interface Props {
   onUploaded: (record: MedicalRecord) => void;
@@ -28,8 +28,8 @@ export function UploadRecordForm({ onUploaded }: Props) {
     const selected = event.target.files?.[0] ?? null;
     setSuccess(null);
 
-    if (selected && selected.size > MAX_BYTES) {
-      setError('That file is larger than 10 MB. Please upload a smaller scan.');
+    if (selected && selected.size > MAX_UPLOAD_BYTES) {
+      setError(`That file is larger than ${MAX_LABEL}. Please upload a smaller scan.`);
       setFile(null);
       return;
     }
@@ -89,7 +89,7 @@ export function UploadRecordForm({ onUploaded }: Props) {
     <form className="card upload-form" onSubmit={submit} noValidate>
       <div className="card-head">
         <h2>Upload a record</h2>
-        <p className="muted small">PDF, image or text · up to 10 MB</p>
+        <p className="muted small">PDF, image or text · up to {MAX_LABEL}</p>
       </div>
 
       <label className="field">

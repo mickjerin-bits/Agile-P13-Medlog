@@ -1,83 +1,83 @@
 # MedLog Architecture
 
-Sprint 1 baseline. The requirements and design epic that preceded implementation is kept in
+Sprint 1 baseline — a frontend-only prototype with the backend mocked in the browser. The
+requirements and design epic that preceded implementation is kept in
 [epic-0-requirements-and-design.md](epic-0-requirements-and-design.md).
 
 ## Components
 
 ```
-Browser (React 19 + Vite)
-  │  fetch /api/*  ·  Bearer JWT in Authorization header
-  ▼
-Express 5 API (Node 22+)
-  ├─ helmet, cors, express.json
-  ├─ /api/auth      bcrypt password hashing, JWT issue/verify, rate limiting
-  └─ /api/records   multer (memory) → AES-256-GCM → disk, ownership checks
-       │                    │
-       │                    ▼
-       │              data/records/<userId>/<uuid>.enc   (ciphertext only)
-       ▼
-   SQLite (better-sqlite3, WAL)
-     users · records · access_log
+React 19 + Vite (the only running process)
+  │
+  ├─ pages/ + components/         UI, forms, validation, loading and error states
+  │      │  await api.*()
+  │      ▼
+  ├─ mock/api.ts                  Mock backend: async, throws ApiError with HTTP status codes,
+  │      │                        adds ~140 ms latency so the UI's async states are real
+  │      ├─ mock/crypto.ts        Web Crypto: PBKDF2 → AES-256-GCM, SHA-256 checksums
+  │      └─ mock/store.ts         localStorage read/write, quota accounting
+  │                                    │
+  ▼                                    ▼
+localStorage
+  medlog.users        [{ id, email, passwordSalt, passwordHash, keySalt, … }]
+  medlog.records      [{ id, ownerId, title, …, iv, checksum }]
+  medlog.blob.<id>    base64 AES-256-GCM ciphertext, one key per record
+  medlog.key.<userId> the patient's derived record key
+  medlog.session      { userId }
 ```
 
-The uploaded file never touches disk in the clear: multer buffers it in memory, `services/crypto.ts`
-encrypts the buffer, and `services/storage.ts` writes only the ciphertext. Nothing decrypts except
-`GET /api/records/:id/file`, after the ownership check passes.
+Record metadata and ciphertext are stored under separate keys so that adding a record rewrites only
+a small index plus one new blob, instead of rewriting one large JSON document each time.
 
 ## Data model
 
-**users**
+**users** (`medlog.users`)
 
-| column | type | notes |
-|---|---|---|
-| id | TEXT PK | UUID |
-| email | TEXT UNIQUE | lowercased on write |
-| password_hash | TEXT | bcrypt, 12 rounds |
-| full_name | TEXT | |
-| date_of_birth, blood_group | TEXT NULL | optional profile |
-| role | TEXT | `PATIENT`; `DOCTOR` arrives in Sprint 2 |
-| created_at | TEXT | ISO 8601 |
+| field | notes |
+|---|---|
+| id | UUID from `crypto.randomUUID()` |
+| email | lowercased and trimmed on write; unique |
+| passwordSalt / passwordHash | 16 random bytes + PBKDF2-SHA256, 210,000 iterations |
+| keySalt | separate salt, so the record key is never the password hash |
+| fullName, dateOfBirth, bloodGroup | profile; the last two are optional |
+| role | `PATIENT`; `DOCTOR` arrives in Sprint 2 |
+| createdAt | ISO 8601 |
 
-**records**
+**records** (`medlog.records`)
 
-| column | type | notes |
-|---|---|---|
-| id | TEXT PK | UUID |
-| owner_id | TEXT FK → users.id | `ON DELETE CASCADE`; every query filters on it |
-| title, record_type, record_date | TEXT | `record_type` is one of 7 enum values |
-| provider_name, notes | TEXT NULL | hospital/clinic and free text |
-| original_filename, mime_type, size_bytes | | metadata of the plaintext file |
-| storage_key | TEXT | path of the `.enc` blob, relative to the storage root |
-| encryption_iv, encryption_tag | TEXT | base64, per record — never reused |
-| checksum | TEXT | SHA-256 of the plaintext, for integrity checks |
-| created_at | TEXT | ISO 8601 |
+| field | notes |
+|---|---|
+| id | UUID |
+| ownerId | every read filters on it |
+| title, recordType, recordDate | `recordType` is one of 7 enum values |
+| providerName, notes | hospital/clinic and free text, nullable |
+| originalFilename, mimeType, sizeBytes | metadata of the plaintext file |
+| iv | base64, 12 random bytes, fresh per record |
+| checksum | SHA-256 of the plaintext, re-verified on every read |
+| createdAt | ISO 8601 |
 
-Index: `(owner_id, record_date DESC)` — the shape of every list query.
+The ciphertext itself lives at `medlog.blob.<recordId>`. The GCM authentication tag is appended to
+the ciphertext by Web Crypto, so it needs no separate field.
 
-**access_log** — `actor_id`, `record_id`, `action` (`UPLOAD` / `DOWNLOAD` / `DELETE`), `created_at`.
-Written in Sprint 1, consumed by the Sprint 2 audit trail and analytics.
+## API surface (`mock/api.ts`)
 
-## API
+| Call | Behaviour |
+|---|---|
+| `register(payload)` | Validates, rejects duplicate email (409), derives the record key, signs in |
+| `login(email, password)` | Re-derives the record key from the password; 401 on any mismatch |
+| `me()` | Restores the session on reload; 401 when signed out |
+| `logout()` | Clears the session and drops the derived key |
+| `listRecords({ recordType, search })` | Own records only, newest record date first |
+| `summary()` | Totals, per-type counts, 5 most recent, storage usage |
+| `uploadRecord(FormData)` | Validates, encrypts, writes; 400 / 413 / 507 on failure |
+| `readRecordFile(id)` | Decrypts and verifies the checksum; 404 if not yours |
+| `downloadRecord(record)` | `readRecordFile` + blob download |
+| `deleteRecord(id)` | Removes the index entry and the ciphertext |
+| `seedDemoRecords()` | Four realistic sample records, for the sprint review demo |
+| `inspectRawStorage(id)` | Returns the raw ciphertext — used by tests and for the demo |
 
-All record routes require `Authorization: Bearer <token>`.
-
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/api/health` | Liveness probe |
-| POST | `/api/auth/register` | Create a patient account → `{ token, user }` |
-| POST | `/api/auth/login` | Sign in → `{ token, user }` |
-| GET | `/api/auth/me` | Current user, used to restore a session |
-| GET | `/api/records` | List own records; `?recordType=` and `?search=` filters |
-| GET | `/api/records/summary` | Dashboard totals, per-type counts, 5 most recent |
-| POST | `/api/records` | `multipart/form-data`: `file` + title, recordType, recordDate, providerName, notes |
-| GET | `/api/records/:id` | Metadata for one own record |
-| GET | `/api/records/:id/file` | Decrypted file; `?disposition=inline` to view instead of download |
-| DELETE | `/api/records/:id` | Delete the row and shred the blob |
-
-Errors are `{ error, code }`, plus `details[]` for validation failures. Codes in use:
-`VALIDATION_ERROR`, `BAD_REQUEST`, `UNAUTHORIZED`, `NOT_FOUND`, `EMAIL_TAKEN`, `FILE_TOO_LARGE`,
-`RATE_LIMITED`, `INTERNAL_ERROR`.
+Errors are `ApiError { status, message, details? }`, where `details` is a list of
+`{ field, message }` for validation failures. Statuses in use: 400, 401, 404, 409, 413, 422, 507.
 
 ## Security decisions and their reasons
 
@@ -85,18 +85,28 @@ Errors are `{ error, code }`, plus `details[]` for validation failures. Codes in
 |---|---|
 | AES-256-GCM, not CBC | Authenticated encryption — a tampered blob fails the tag check instead of decrypting to garbage |
 | Fresh 12-byte IV per record | IV reuse under GCM leaks plaintext relationships |
-| Key only in `MEDLOG_ENCRYPTION_KEY`, server refuses to boot without it | A committed or defaulted key is the same as no encryption |
-| bcrypt 12 rounds (4 in tests) | Slow by design against offline cracking; low rounds keep the suite fast |
-| Ownership filter inside every SQL query | Not a separate guard that a future route can forget to call |
+| PBKDF2-SHA256, 210,000 iterations | OWASP's current guidance for PBKDF2-SHA256; slow enough to hurt offline guessing |
+| Separate salts for the password hash and the record key | The stored hash must not be usable as the encryption key |
+| Password never stored, only its hash | A stored password is a breach waiting to happen, even in a prototype |
+| Owner filter inside every read | Not a separate guard a future call site can forget |
 | Unknown record id returns 404, not 403 | A 403 confirms the record exists |
-| MIME allowlist + 10 MB cap | Blocks executable uploads and memory exhaustion |
-| `storage_key` resolved and prefix-checked | Defeats `../` path traversal via a tampered key |
-| Rate limit on login and register | Slows credential stuffing |
+| SHA-256 checksum verified on read | Catches silent corruption of a stored blob |
+| MIME allowlist + 1.5 MB cap | Blocks executable uploads and keeps a record inside the ~5 MB localStorage budget |
+| Quota failure rolls back the blob | A half-written record would leave an undeletable orphan |
+
+## The honest limitation
+
+With no server, the derived record key must be persisted in `localStorage` next to the ciphertext,
+because a fresh tab has no other way to recover it. Anyone with access to the browser profile can
+therefore decrypt. The encryption is real (verifiable in DevTools) and it models the Sprint 2 data
+flow correctly, but it is **not** a protection boundary. This prototype must not hold real patient
+data.
 
 ## Known gaps (carried into Sprint 2)
 
-- Files are encrypted with one server-wide key. Per-patient key wrapping is the next step.
-- JWTs cannot be revoked before expiry (12 h) — no refresh/blacklist yet.
-- Local disk storage; object storage (e.g. S3) needed for a real deployment.
-- `access_log` is written but not yet surfaced to the patient.
+- Key custody: needs a server so the key stops living beside the ciphertext.
+- ~5 MB total storage; large scans and PDFs will not fit. Object storage is the fix.
+- Data is per-browser: no sync across devices, and clearing site data destroys everything.
 - No doctor role, consent model, or sharing links.
+- No audit trail surfaced to the patient (the Sprint 1 backend had an `access_log` table; the mock
+  drops it, and it returns with the real backend).

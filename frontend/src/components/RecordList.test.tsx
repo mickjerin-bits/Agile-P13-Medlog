@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { api } from '../api/client';
+import { api } from '../mock/api';
 import { RecordList, formatBytes } from './RecordList';
 import type { MedicalRecord } from '../types';
 

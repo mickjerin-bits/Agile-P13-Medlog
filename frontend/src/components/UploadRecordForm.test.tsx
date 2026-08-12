@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, api } from '../api/client';
+import { ApiError, MAX_UPLOAD_BYTES, api } from '../mock/api';
 import { UploadRecordForm } from './UploadRecordForm';
 import type { MedicalRecord } from '../types';
 
@@ -42,16 +42,16 @@ describe('UploadRecordForm', () => {
     expect(screen.getByLabelText('Title')).toHaveValue('blood-panel');
   });
 
-  it('rejects a file larger than 10 MB before any request', async () => {
+  it('rejects an oversized file before touching storage', async () => {
     const upload = vi.spyOn(api, 'uploadRecord');
     render(<UploadRecordForm onUploaded={vi.fn()} />);
 
     const big = new File(['x'], 'huge.pdf', { type: 'application/pdf' });
-    Object.defineProperty(big, 'size', { value: 11 * 1024 * 1024 });
+    Object.defineProperty(big, 'size', { value: MAX_UPLOAD_BYTES + 1 });
 
     await userEvent.upload(screen.getByLabelText('Document'), big);
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('larger than 10 MB');
+    expect(await screen.findByRole('alert')).toHaveTextContent('larger than 1.5 MB');
     expect(upload).not.toHaveBeenCalled();
   });
 

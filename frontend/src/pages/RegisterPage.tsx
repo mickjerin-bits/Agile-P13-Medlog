@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { ApiError } from '../api/client';
+import { ApiError } from '../mock/api';
 import { useAuth } from '../auth/AuthContext';
 
 const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];

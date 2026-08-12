@@ -8,11 +8,6 @@ coverage/
 .env.*
 !.env.example
 
-backend/data/
-*.db
-*.db-shm
-*.db-wal
-
 *.log
 npm-debug.log*
 .DS_Store

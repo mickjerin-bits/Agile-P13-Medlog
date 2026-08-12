@@ -49,4 +49,6 @@ export interface RecordSummary {
   lastUploadAt: string | null;
   byType: Partial<Record<RecordType, number>>;
   recentRecords: MedicalRecord[];
+  storageUsedBytes: number;
+  storageBudgetBytes: number;
 }

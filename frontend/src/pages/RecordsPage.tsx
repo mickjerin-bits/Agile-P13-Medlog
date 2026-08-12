@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api } from '../api/client';
+import { api } from '../mock/api';
 import { RecordList } from '../components/RecordList';
 import { RECORD_TYPES, RECORD_TYPE_LABELS } from '../types';
 import type { MedicalRecord } from '../types';

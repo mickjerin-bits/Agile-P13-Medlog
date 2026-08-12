@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api } from '../api/client';
+import { api } from '../mock/api';
 import { RECORD_TYPE_LABELS } from '../types';
 import type { MedicalRecord } from '../types';
 

@@ -9,6 +9,8 @@ const empty: RecordSummary = {
   lastUploadAt: null,
   byType: {},
   recentRecords: [],
+  storageUsedBytes: 0,
+  storageBudgetBytes: 5 * 1024 * 1024,
 };
 
 describe('SummaryCards', () => {
@@ -28,6 +30,16 @@ describe('SummaryCards', () => {
     expect(screen.getByText('Records stored').nextElementSibling).toHaveTextContent('4');
     expect(screen.getByText('Encrypted volume').nextElementSibling).toHaveTextContent('2.0 KB');
     expect(screen.getByText('Categories used').nextElementSibling).toHaveTextContent('3');
+  });
+
+  it('reports browser storage usage as a percentage of the budget', () => {
+    render(
+      <SummaryCards
+        summary={{ ...empty, storageUsedBytes: 1024 * 1024, storageBudgetBytes: 4 * 1024 * 1024 }}
+      />,
+    );
+
+    expect(screen.getByText('Browser storage').nextElementSibling).toHaveTextContent('25%');
   });
 
   it('shows a placeholder when nothing has been uploaded', () => {

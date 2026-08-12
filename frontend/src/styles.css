@@ -496,6 +496,43 @@ textarea {
   color: var(--muted);
 }
 
+.quota-bar {
+  display: block;
+  height: 5px;
+  margin-top: 0.35rem;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.quota-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+}
+
+.demo-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+}
+
+.demo-block code {
+  background: var(--bg);
+  border-radius: 4px;
+  padding: 0.05rem 0.3rem;
+  font-size: 0.85em;
+}
+
+.demo-hint {
+  margin: 0;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--border);
+}
+
 .empty-state {
   margin: 0;
   padding: 1.25rem 0;

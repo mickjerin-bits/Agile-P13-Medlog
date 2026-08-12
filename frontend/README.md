@@ -1,6 +1,6 @@
 # MedLog Web App
 
-React 19 + Vite + TypeScript. Patient-facing UI for MedLog.
+React 19 + Vite + TypeScript. The whole application — including its mocked backend.
 
 ## Setup
 
@@ -8,31 +8,43 @@ React 19 + Vite + TypeScript. Patient-facing UI for MedLog.
 npm install && npm run dev
 ```
 
-Runs on http://localhost:5173 and proxies `/api` to http://localhost:4000, so start the
-[backend](../backend/README.md) first. Override the target with `VITE_API_TARGET` if the API runs
-elsewhere.
+Runs on http://localhost:5173. No server, no database, no environment variables.
 
 ## Scripts
 
 | Command | Does |
 |---|---|
 | `npm run dev` | Vite dev server with HMR |
-| `npm test` | 19 Vitest + Testing Library tests |
+| `npm test` | 50 Vitest + Testing Library tests |
 | `npm run typecheck` | `tsc -b --noEmit` |
-| `npm run build` | Production bundle into `dist/` |
+| `npm run build` | Static bundle into `dist/` |
+
+Set `VITE_BASE_PATH` when building for a sub-path host such as GitHub Pages.
 
 ## Layout
 
 ```
 src/
 ├── App.tsx                Routing; unauthenticated users only reach login/register
-├── auth/AuthContext.tsx   Token + current user, session restore via /auth/me
-├── api/client.ts          Typed fetch wrapper, ApiError, token storage
+├── mock/
+│   ├── api.ts             Mock backend — the module Sprint 2 replaces with fetch calls
+│   ├── crypto.ts          PBKDF2 + AES-256-GCM + SHA-256 via Web Crypto
+│   └── store.ts           localStorage keys, quota accounting, reset
+├── auth/AuthContext.tsx   Session state, restored through api.me()
 ├── pages/                 LoginPage, RegisterPage, DashboardPage, RecordsPage
 ├── components/            AppShell, UploadRecordForm, RecordList, SummaryCards
 └── styles.css             Design tokens and layout (no CSS framework)
 ```
 
-The JWT is kept in `localStorage` under `medlog.token` and attached as a bearer header by
-`api/client.ts`. Files are requested as blobs and handed to a temporary anchor for download, so the
-token is never put in a URL.
+## Notes for whoever picks this up
+
+- `mock/api.ts` is deliberately shaped like an HTTP client: `async`, throws `ApiError` with a status
+  code, ~140 ms of simulated latency (0 under test). Keep that contract and the UI needs no changes
+  when a real API lands.
+- Uploads are capped at 1.5 MB because `localStorage` gives roughly 5 MB per origin and base64
+  inflates a file by a third. Exceeding the quota returns status 507 and rolls the blob back.
+- `crypto.ts` needs `crypto.subtle`, which browsers only expose on `https://` or `localhost`. A demo
+  served over plain `http://` from an IP address will not work.
+- Tests run under jsdom, which has no `crypto.subtle` — `src/test-setup.ts` substitutes Node's
+  `webcrypto`. jsdom's `Storage` is also a Proxy, so stubbing `localStorage.setItem` directly does
+  nothing; spy on `Storage.prototype.setItem` instead.
