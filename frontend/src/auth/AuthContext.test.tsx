@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { api } from '../mock/api';
 import { renderWithProviders, signedIn, signedOut, testUser } from '../test-utils';
@@ -7,22 +8,41 @@ import { AuthProvider, useAuth } from './AuthContext';
 
 function Probe() {
   const { user, loading, login, register, signInAsDemoPatient, logout } = useAuth();
+  const [failed, setFailed] = useState(false);
+
+  // The real pages catch and surface failures; this probe does the same so a
+  // rejected call is asserted on rather than escaping as an unhandled rejection.
+  const swallow = (action: Promise<void>) => {
+    action.catch(() => setFailed(true));
+  };
 
   if (loading) return <p>loading</p>;
 
   return (
     <div>
       <p data-testid="who">{user ? user.fullName : 'nobody'}</p>
-      <button type="button" onClick={() => login('asha.rao@medlog.test', 'DemoPass123!')}>
+      {failed && <p role="alert">action failed</p>}
+      <button
+        type="button"
+        onClick={() => swallow(login('asha.rao@medlog.test', 'DemoPass123!'))}
+      >
         do-login
       </button>
       <button
         type="button"
-        onClick={() => register({ email: 'new@medlog.test', password: 'Str0ngPass!', fullName: 'New Patient' })}
+        onClick={() =>
+          swallow(
+            register({
+              email: 'new@medlog.test',
+              password: 'Str0ngPass!',
+              fullName: 'New Patient',
+            }),
+          )
+        }
       >
         do-register
       </button>
-      <button type="button" onClick={() => signInAsDemoPatient()}>
+      <button type="button" onClick={() => swallow(signInAsDemoPatient())}>
         do-demo
       </button>
       <button type="button" onClick={logout}>
@@ -123,9 +143,10 @@ describe('AuthProvider actions', () => {
     );
     await screen.findByTestId('who');
 
-    await userEvent.click(screen.getByRole('button', { name: 'do-login' })).catch(() => {});
+    await userEvent.click(screen.getByRole('button', { name: 'do-login' }));
 
-    await waitFor(() => expect(screen.getByTestId('who')).toHaveTextContent('nobody'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('action failed');
+    expect(screen.getByTestId('who')).toHaveTextContent('nobody');
   });
 });
 
