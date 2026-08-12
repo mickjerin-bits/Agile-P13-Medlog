@@ -98,9 +98,10 @@ export function LoginPage() {
             Open the demo patient
           </button>
           <p className="muted small center">
-            Creates {DEMO_CREDENTIALS.email} with four sample records.
-            <br />
-            Password: <code>{DEMO_CREDENTIALS.password}</code>
+            Signs in as {DEMO_CREDENTIALS.email} (password{' '}
+            <code>{DEMO_CREDENTIALS.password}</code>) with four sample records, creating the account
+            first if this browser has never used MedLog. Accounts live in this browser only, so
+            nothing carries across to another device.
           </p>
         </div>
       </form>

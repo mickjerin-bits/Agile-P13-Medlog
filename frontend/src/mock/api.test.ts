@@ -392,6 +392,31 @@ describe('signInAsDemoPatient', () => {
     const { user } = await api.login(DEMO_CREDENTIALS.email, DEMO_CREDENTIALS.password);
     expect(user.fullName).toBe(DEMO_CREDENTIALS.fullName);
   });
+
+  it('provisions the demo account when the published credentials are typed in a fresh browser', async () => {
+    expect(store.users()).toHaveLength(0);
+
+    const { user } = await api.login(DEMO_CREDENTIALS.email, DEMO_CREDENTIALS.password);
+
+    expect(user.email).toBe(DEMO_CREDENTIALS.email);
+    expect((await api.summary()).totalRecords).toBe(4);
+  });
+
+  it('still rejects the demo email with a wrong password', async () => {
+    await expect(api.login(DEMO_CREDENTIALS.email, 'NotTheDemoPassword')).rejects.toThrow(
+      'Invalid email or password',
+    );
+    expect(store.users()).toHaveLength(0);
+  });
+
+  it('does not re-provision once the demo account exists with a changed password', async () => {
+    await api.signInAsDemoPatient();
+    api.logout();
+
+    await expect(api.login(DEMO_CREDENTIALS.email, 'WrongPass!')).rejects.toThrow(
+      'Invalid email or password',
+    );
+  });
 });
 
 describe('seedDemoRecords', () => {

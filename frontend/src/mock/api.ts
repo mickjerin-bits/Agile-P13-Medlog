@@ -202,7 +202,13 @@ export const api = {
   async login(email: string, password: string): Promise<{ user: User }> {
     initStore();
 
-    const user = store.users().find((candidate) => candidate.email === email.trim().toLowerCase());
+    const normalised = email.trim().toLowerCase();
+    const user = store.users().find((candidate) => candidate.email === normalised);
+
+    if (!user && normalised === DEMO_CREDENTIALS.email && password === DEMO_CREDENTIALS.password) {
+      return api.signInAsDemoPatient();
+    }
+
     const hash = user ? await hashPassword(password, user.passwordSalt) : null;
 
     if (!user || hash !== user.passwordHash) {
