@@ -1,10 +1,15 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from './auth/AuthContext';
 import { AppShell } from './components/AppShell';
+import { AnalyticsPage } from './pages/AnalyticsPage';
 import { DashboardPage } from './pages/DashboardPage';
+import { DoctorDashboardPage } from './pages/DoctorDashboardPage';
 import { LoginPage } from './pages/LoginPage';
 import { RecordsPage } from './pages/RecordsPage';
 import { RegisterPage } from './pages/RegisterPage';
+import { RemindersPage } from './pages/RemindersPage';
+import { SharedRecordsPage } from './pages/SharedRecordsPage';
+import { SharingPage } from './pages/SharingPage';
 
 export default function App() {
   const { user, loading } = useAuth();
@@ -27,11 +32,26 @@ export default function App() {
     );
   }
 
+  if (user.role === 'DOCTOR') {
+    return (
+      <AppShell>
+        <Routes>
+          <Route path="/" element={<DoctorDashboardPage />} />
+          <Route path="/shared/:grantId" element={<SharedRecordsPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell>
       <Routes>
         <Route path="/" element={<DashboardPage />} />
         <Route path="/records" element={<RecordsPage />} />
+        <Route path="/reminders" element={<RemindersPage />} />
+        <Route path="/analytics" element={<AnalyticsPage />} />
+        <Route path="/sharing" element={<SharingPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AppShell>

@@ -93,6 +93,30 @@ Errors are `ApiError { status, message, details? }`, where `details` is a list o
 | SHA-256 checksum verified on read | Catches silent corruption of a stored blob |
 | MIME allowlist + 1.5 MB cap | Blocks executable uploads and keeps a record inside the ~5 MB localStorage budget |
 | Quota failure rolls back the blob | A half-written record would leave an undeletable orphan |
+| Consent wraps the patient key rather than sharing it | Revoking deletes the grant, and the wrapped key dies with it — the doctor's only route to the plaintext closes |
+| Revoke deletes the grant instead of flagging it | A `revoked: true` flag would leave the usable key sitting in storage |
+| Unknown or expired consent returns 404, not 403 | Same reason as records: a 403 confirms the grant exists |
+| Audit rows store a record id, never a title | Titles are encrypted metadata; writing them to the log would undo the Sprint 1 CRYPTO-META fix |
+| Reminder title and notes encrypted like record metadata | "Oncology follow-up" is as sensitive as the record it refers to |
+
+## Sprint 2: how doctor access works
+
+1. The patient names a doctor by email and optionally narrows the scope to certain record types and
+   an end date.
+2. MedLog generates a fresh per-grant key, encrypts the patient's record key under it, and stores
+   both on the grant.
+3. The doctor's reads unwrap that key to decrypt only the record types the grant allows.
+4. Revoking deletes the grant row, so the wrapped key and its unwrapping key both disappear.
+
+Every doctor action — listing, opening, downloading, and refusals outside the granted scope — is
+appended to an audit log the patient can read.
+
+**The same honest limitation applies.** With no server, the per-grant unwrapping key has to sit
+beside the wrapped key it opens, exactly as the record key sits beside the ciphertext. In a real
+deployment the patient's key would be wrapped under the doctor's public key and that field would not
+exist. What the model *does* enforce correctly, and what the tests prove, is the lifecycle: no grant
+means no access, a scoped grant means no access outside the scope, and revocation ends access
+immediately.
 
 ## The honest limitation
 
@@ -102,11 +126,17 @@ therefore decrypt. The encryption is real (verifiable in DevTools) and it models
 flow correctly, but it is **not** a protection boundary. This prototype must not hold real patient
 data.
 
-## Known gaps (carried into Sprint 2)
+## Known gaps
 
-- Key custody: needs a server so the key stops living beside the ciphertext.
+- Key custody: needs a server so neither the record key nor the per-grant wrapping key lives beside
+  the ciphertext. This is the one gap that matters most and it is unchanged since Sprint 1.
 - ~5 MB total storage; large scans and PDFs will not fit. Object storage is the fix.
-- Data is per-browser: no sync across devices, and clearing site data destroys everything.
-- No doctor role, consent model, or sharing links.
-- No audit trail surfaced to the patient (the Sprint 1 backend had an `access_log` table; the mock
-  drops it, and it returns with the real backend).
+- Data is per-browser: no sync across devices, and clearing site data destroys everything. A doctor
+  and their patients must therefore be in the same browser profile for the demo.
+- Export to CSV/PDF is in the P13 feature list but assigned to neither sprint column, and is not
+  built.
+- Care gaps are derived only from what the patient has uploaded, so they are a prompt and not a
+  clinical recall system.
+
+Closed in Sprint 2: the doctor role, the consent model, and the patient-visible audit trail that
+replaced the Sprint 1 backend's `access_log` table.

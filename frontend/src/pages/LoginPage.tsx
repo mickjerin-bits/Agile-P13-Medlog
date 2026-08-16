@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { ApiError, DEMO_CREDENTIALS } from '../mock/api';
+import { ApiError, DEMO_CREDENTIALS, DEMO_DOCTOR_CREDENTIALS } from '../mock/api';
 import { useAuth } from '../auth/AuthContext';
 
 export function LoginPage() {
-  const { login, signInAsDemoPatient } = useAuth();
+  const { login, signInAsDemoPatient, signInAsDemoDoctor } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +33,19 @@ export function LoginPage() {
       await signInAsDemoPatient();
     } catch {
       setError('Could not open the demo account.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function useDemoDoctor() {
+    setError(null);
+    setBusy(true);
+
+    try {
+      await signInAsDemoDoctor();
+    } catch {
+      setError('Could not open the demo doctor account.');
     } finally {
       setBusy(false);
     }
@@ -99,8 +112,22 @@ export function LoginPage() {
           </button>
           <p className="muted small center">
             Signs in as {DEMO_CREDENTIALS.email} (password{' '}
-            <code>{DEMO_CREDENTIALS.password}</code>) with four sample records, creating the account
-            first if this browser has never used MedLog. Accounts live in this browser only, so
+            <code>{DEMO_CREDENTIALS.password}</code>) with four sample records, reminders, and the
+            demo doctor already granted access.
+          </p>
+
+          <button
+            type="button"
+            className="btn btn-ghost btn-block"
+            onClick={useDemoDoctor}
+            disabled={busy}
+          >
+            Open the demo doctor
+          </button>
+          <p className="muted small center">
+            Signs in as {DEMO_DOCTOR_CREDENTIALS.email} (password{' '}
+            <code>{DEMO_DOCTOR_CREDENTIALS.password}</code>) to see the same record from the doctor
+            side. Either account is created on first use, and both live in this browser only, so
             nothing carries across to another device.
           </p>
         </div>

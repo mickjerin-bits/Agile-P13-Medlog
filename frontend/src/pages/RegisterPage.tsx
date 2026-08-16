@@ -3,18 +3,24 @@ import type { FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { ApiError } from '../mock/api';
 import { useAuth } from '../auth/AuthContext';
+import { USER_ROLES, USER_ROLE_LABELS } from '../types';
+import type { UserRole } from '../types';
 
 const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
 export function RegisterPage() {
   const { register } = useAuth();
+  const [role, setRole] = useState<UserRole>('PATIENT');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [dateOfBirth, setDateOfBirth] = useState('');
   const [bloodGroup, setBloodGroup] = useState('');
+  const [specialty, setSpecialty] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const isDoctor = role === 'DOCTOR';
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -26,8 +32,10 @@ export function RegisterPage() {
         fullName,
         email,
         password,
-        dateOfBirth: dateOfBirth || undefined,
-        bloodGroup: bloodGroup || undefined,
+        role,
+        dateOfBirth: isDoctor ? undefined : dateOfBirth || undefined,
+        bloodGroup: isDoctor ? undefined : bloodGroup || undefined,
+        specialty: isDoctor ? specialty || undefined : undefined,
       });
     } catch (err) {
       const message =
@@ -52,7 +60,29 @@ export function RegisterPage() {
           </span>
         </div>
         <h1>Create your account</h1>
-        <p className="muted">Takes a minute. Only you can read what you upload.</p>
+        <p className="muted">
+          {isDoctor
+            ? 'Patients choose what to share with you, and can revoke it at any time.'
+            : 'Takes a minute. Only you can read what you upload.'}
+        </p>
+
+        <fieldset className="field role-picker">
+          <legend>I am a</legend>
+          <div className="role-options">
+            {USER_ROLES.map((value) => (
+              <label key={value} className="role-option">
+                <input
+                  type="radio"
+                  name="role"
+                  value={value}
+                  checked={role === value}
+                  onChange={() => setRole(value)}
+                />
+                <span>{USER_ROLE_LABELS[value]}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
 
         <label className="field">
           <span>Full name</span>
@@ -89,28 +119,41 @@ export function RegisterPage() {
           <span className="muted small">At least 8 characters.</span>
         </label>
 
-        <div className="field-row">
+        {isDoctor ? (
           <label className="field">
-            <span>Date of birth</span>
+            <span>Specialty</span>
             <input
-              type="date"
-              value={dateOfBirth}
-              onChange={(e) => setDateOfBirth(e.target.value)}
+              type="text"
+              value={specialty}
+              onChange={(e) => setSpecialty(e.target.value)}
+              placeholder="General Medicine"
             />
+            <span className="muted small">Shown to patients deciding whether to share.</span>
           </label>
+        ) : (
+          <div className="field-row">
+            <label className="field">
+              <span>Date of birth</span>
+              <input
+                type="date"
+                value={dateOfBirth}
+                onChange={(e) => setDateOfBirth(e.target.value)}
+              />
+            </label>
 
-          <label className="field">
-            <span>Blood group</span>
-            <select value={bloodGroup} onChange={(e) => setBloodGroup(e.target.value)}>
-              <option value="">Prefer not to say</option>
-              {BLOOD_GROUPS.map((group) => (
-                <option key={group} value={group}>
-                  {group}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+            <label className="field">
+              <span>Blood group</span>
+              <select value={bloodGroup} onChange={(e) => setBloodGroup(e.target.value)}>
+                <option value="">Prefer not to say</option>
+                {BLOOD_GROUPS.map((group) => (
+                  <option key={group} value={group}>
+                    {group}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
 
         {error && (
           <p className="alert alert-error" role="alert">

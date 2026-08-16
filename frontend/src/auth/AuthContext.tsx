@@ -10,6 +10,7 @@ interface AuthState {
   login: (email: string, password: string) => Promise<void>;
   register: (payload: RegisterPayload) => Promise<void>;
   signInAsDemoPatient: () => Promise<void>;
+  signInAsDemoDoctor: () => Promise<void>;
   logout: () => void;
 }
 
@@ -42,14 +43,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(response.user);
   }, []);
 
+  const signInAsDemoDoctor = useCallback(async () => {
+    const response = await api.signInAsDemoDoctor();
+    setUser(response.user);
+  }, []);
+
   const logout = useCallback(() => {
     api.logout();
     setUser(null);
   }, []);
 
   const value = useMemo(
-    () => ({ user, loading, login, register, signInAsDemoPatient, logout }),
-    [user, loading, login, register, signInAsDemoPatient, logout],
+    () => ({
+      user,
+      loading,
+      login,
+      register,
+      signInAsDemoPatient,
+      signInAsDemoDoctor,
+      logout,
+    }),
+    [user, loading, login, register, signInAsDemoPatient, signInAsDemoDoctor, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

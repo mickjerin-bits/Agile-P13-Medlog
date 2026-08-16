@@ -3,7 +3,9 @@
 Project 13 · BITS WILP · Agile Software Processes (S2-25 SECLZG544) · Group 9
 
 MedLog lets a patient upload their medical documents, keeps them encrypted in browser storage, and
-gives them a single dashboard over their health record.
+gives them a single dashboard over their health record. Patients can also share their record with a
+doctor under revocable consent, track medication and appointment reminders, and see trends across
+their own history.
 
 **This is a frontend-only prototype.** There is no server and no database — the whole backend is
 mocked in the browser against `localStorage`, so the app runs from a single `npm install` and
@@ -17,6 +19,7 @@ deploys as static files to any free host.
 | Sprint 2 goal | Doctor access, analytics, reminders |
 | Stack | React 19 · Vite · TypeScript · Web Crypto · localStorage |
 | Sprint 1 backlog | [docs/sprint-1-backlog.md](docs/sprint-1-backlog.md) — 16 items, 58 points, all Done |
+| Sprint 2 | Doctor access with consent + audit, reminders, health trends — built, tests green |
 
 ## Quick start
 
@@ -26,8 +29,11 @@ cd Agile-P13-Medlog/frontend && npm install && npm run dev
 ```
 
 Open http://localhost:5173 and press **Open the demo patient** — that creates
-`asha.rao@medlog.test` (password `DemoPass123!`) with four sample records, so there is nothing to
-set up before there is something to look at. Registering your own account works too.
+`asha.rao@medlog.test` (password `DemoPass123!`) with four sample records, four reminders, and the
+demo doctor already granted access, so there is nothing to set up before there is something to look
+at. **Open the demo doctor** signs in as `dr.iyer@medlog.test` (same password) to see the same
+record from the doctor's side. Registering your own account works too, as either a patient or a
+doctor.
 
 Accounts live in the `localStorage` of the browser that created them, so they do not carry across
 browsers, devices or incognito windows. Typing the demo credentials in a browser that has never
@@ -42,8 +48,9 @@ Everything lives in your browser. To wipe it, clear site data for `localhost:517
 cd frontend && npm test
 ```
 
-99 tests across 11 files (Vitest + Testing Library): the mock API, the Web Crypto layer, the
-session context, and every page and component.
+185 tests across 20 files (Vitest + Testing Library): the mock API, the Web Crypto layer, the
+consent and audit rules, the reminder schedule maths, the analytics derivations, the session
+context, and every page and component.
 Typecheck, tests and the production build run on every push via
 [GitHub Actions](.github/workflows/ci.yml), which also uploads the built `dist/` as an artifact.
 
@@ -52,12 +59,17 @@ Typecheck, tests and the production build run on every push via
 ```
 frontend/src/
 ├── mock/               The "backend", in the browser
-│   ├── api.ts          Same shape a REST client would have: register, login, records CRUD
+│   ├── api.ts          Same shape a REST client would have: auth, records, consent, reminders
 │   ├── crypto.ts       PBKDF2 key derivation + AES-256-GCM via Web Crypto
+│   ├── schedule.ts     Reminder repeat maths and due/overdue grouping (pure)
+│   ├── analytics.ts    Trends, category and provider counts, care gaps (pure)
 │   └── store.ts        localStorage persistence, namespaced keys, quota accounting
 ├── auth/               Session context
-├── pages/              Login, Register, Dashboard, Records
-└── components/         AppShell, UploadRecordForm, RecordList, SummaryCards
+├── pages/              Login, Register, Dashboard, Records, Reminders, Analytics,
+│                       Sharing, DoctorDashboard, SharedRecords
+└── components/         AppShell, UploadRecordForm, RecordList, SummaryCards,
+                        ReminderForm, ReminderList, ConsentForm, ConsentList,
+                        AuditTrail, TrendChart
 ```
 
 `mock/api.ts` deliberately mirrors a real HTTP client — it is `async`, it throws `ApiError` with
@@ -110,20 +122,43 @@ server for a browser-side mock), one defect found during review preparation, and
 found during testing — record metadata was being stored readable while only the attachment was
 encrypted. All three are tracked as their own items rather than folded silently into other work.
 
+Continuous deployment to Netlify was added after the Sprint 1 review as AP-26 (3 points), so the
+board totals 61 points across 17 delivered items.
+
 ## Deploying the demo
 
-The build is static, so any free host works:
+Merging to `main` builds and deploys to Netlify automatically via
+[.github/workflows/deploy.yml](.github/workflows/deploy.yml); tests gate every pull request first.
+
+To build it yourself:
 
 ```bash
 cd frontend && npm run build
 ```
 
-Upload `frontend/dist` to Netlify (drag and drop), or for GitHub Pages set
+The output in `frontend/dist` is static, so any free host works. For GitHub Pages set
 `VITE_BASE_PATH=/Agile-P13-Medlog/` before building. Configure the host to serve `index.html` for
 unknown paths so client-side routing works on refresh.
 
-## Not in Sprint 1
+## Sprint 2 — doctor access, analytics, reminders
 
-Doctor accounts and consent-based sharing, analytics, reminders, and the real backend are Sprint 2
-scope. Because the storage layer is one module behind an async interface, moving it server-side is
-a contained change rather than a rewrite.
+| Story | Delivered | Verified by |
+|---|---|---|
+| Patient shares their record with a doctor | `api.grantConsent`, `ConsentForm` | `mock/consent.test.ts` |
+| Patient limits what the doctor can see | Record-type scope on the grant | `mock/consent.test.ts` ("hides record types the patient left out") |
+| Patient revokes access at any time | `api.revokeConsent`, `ConsentList` | `mock/consent.test.ts` ("closes the door the moment consent is revoked") |
+| Doctor reads only what was shared | `api.listSharedRecords`, `SharedRecordsPage` | `mock/consent.test.ts` isolation suite |
+| Patient sees who did what | `api.listAuditTrail`, `AuditTrail` | `mock/consent.test.ts` audit suite |
+| Patient tracks medication, appointments and follow-ups | `api.createReminder`, `RemindersPage` | `mock/reminders.test.ts`, `schedule.test.ts` |
+| Repeating reminders roll forward | `nextDueDate` | `mock/reminders.test.ts` ("rolls a repeating reminder forward") |
+| Patient sees trends across their record | `api.analytics`, `AnalyticsPage` | `mock/analytics.test.ts` |
+
+Consent, audit and reminder data follow the same encryption rules as records: reminder titles and
+notes are encrypted, and the audit log stores record ids rather than titles.
+
+## Not built
+
+Export to CSV/PDF appears in the P13 feature list but is assigned to neither sprint column, and is
+not implemented. The real backend is also still out of scope — because the storage layer is one
+module behind an async interface, moving it server-side is a contained change rather than a
+rewrite.

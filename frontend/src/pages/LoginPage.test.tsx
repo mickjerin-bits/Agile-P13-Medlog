@@ -1,8 +1,8 @@
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, DEMO_CREDENTIALS, api } from '../mock/api';
-import { renderWithProviders, signedOut, testUser } from '../test-utils';
+import { ApiError, DEMO_CREDENTIALS, DEMO_DOCTOR_CREDENTIALS, api } from '../mock/api';
+import { renderWithProviders, signedOut, testDoctor, testUser } from '../test-utils';
 import { LoginPage } from './LoginPage';
 
 beforeEach(() => {
@@ -72,8 +72,30 @@ describe('LoginPage', () => {
     await renderLogin();
 
     expect(screen.getByText(new RegExp(DEMO_CREDENTIALS.email))).toBeInTheDocument();
-    expect(screen.getByText(DEMO_CREDENTIALS.password)).toBeInTheDocument();
+    expect(screen.getAllByText(DEMO_CREDENTIALS.password).length).toBeGreaterThan(0);
     expect(screen.getByText(/this browser only/i)).toBeInTheDocument();
+  });
+
+  it('offers the demo doctor alongside the demo patient', async () => {
+    const demoDoctor = vi.spyOn(api, 'signInAsDemoDoctor').mockResolvedValue({ user: testDoctor });
+    await renderLogin();
+
+    expect(screen.getByText(new RegExp(DEMO_DOCTOR_CREDENTIALS.email))).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open the demo doctor' }));
+
+    await waitFor(() => expect(demoDoctor).toHaveBeenCalled());
+  });
+
+  it('reports a failure to open the demo doctor', async () => {
+    vi.spyOn(api, 'signInAsDemoDoctor').mockRejectedValue(new Error('boom'));
+    await renderLogin();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open the demo doctor' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not open the demo doctor account',
+    );
   });
 
   it('offers a route to registration', async () => {

@@ -538,3 +538,258 @@ textarea {
   padding: 1.25rem 0;
   text-align: center;
 }
+
+/* Sprint 2 — reminders, doctor access, trends */
+
+.field-error {
+  color: var(--danger);
+  font-size: 0.8rem;
+}
+
+.badge-medication {
+  background: #e7f2fb;
+  color: #12608f;
+}
+
+.badge-appointment {
+  background: #fff2dd;
+  color: #8a5200;
+}
+
+.badge-follow_up {
+  background: #efe7fb;
+  color: #5b2a9c;
+}
+
+.role-picker,
+.consent-types {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem 0.9rem;
+}
+
+.role-picker legend,
+.consent-types legend {
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0 0.35rem;
+}
+
+.role-options {
+  display: flex;
+  gap: 1.25rem;
+}
+
+.role-option,
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.role-option input,
+.checkbox input {
+  width: auto;
+  margin: 0;
+}
+
+.consent-type-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.45rem 1rem;
+  margin-top: 0.5rem;
+}
+
+.reminder-section + .reminder-section {
+  margin-top: 1.5rem;
+}
+
+.reminder-heading {
+  font-size: 0.95rem;
+  margin: 0 0 0.6rem;
+}
+
+.reminder-heading-overdue {
+  color: var(--danger);
+}
+
+.reminder-heading-today {
+  color: var(--primary-dark);
+}
+
+.reminder-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.reminder-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.reminder-item h4 {
+  margin: 0.35rem 0 0.2rem;
+  font-size: 1rem;
+}
+
+.reminder-overdue {
+  border-left-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.reminder-today {
+  border-left-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.reminder-completed {
+  opacity: 0.65;
+}
+
+.reminder-completed h4 {
+  text-decoration: line-through;
+}
+
+.audit-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.audit-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.65rem 0.25rem 0.65rem 0.75rem;
+  border-left: 3px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.audit-item:last-child {
+  border-bottom: none;
+}
+
+.audit-action {
+  margin: 0 0 0.15rem;
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.audit-grant {
+  border-left-color: var(--success);
+}
+
+.audit-revoke {
+  border-left-color: var(--muted);
+}
+
+.audit-denied {
+  border-left-color: var(--danger);
+}
+
+.trend-chart {
+  width: 100%;
+  height: auto;
+}
+
+.trend-axis {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.trend-bar {
+  fill: var(--primary);
+}
+
+.trend-value {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+.trend-label {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+.bar-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) 2fr auto;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.bar-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+}
+
+.bar-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.gap-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.gap-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.92rem;
+}
+
+@media (max-width: 640px) {
+  .reminder-item,
+  .audit-item {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .bar-row {
+    grid-template-columns: 1fr auto;
+  }
+
+  .bar-track {
+    display: none;
+  }
+}

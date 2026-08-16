@@ -1,5 +1,19 @@
-import { RECORD_TYPES } from '../types';
-import type { MedicalRecord, RecordSummary, RecordType, User } from '../types';
+import { RECORD_TYPES, REMINDER_KINDS, REPEAT_RULES, USER_ROLES } from '../types';
+import type {
+  AuditEntry,
+  ConsentGrant,
+  HealthAnalytics,
+  MedicalRecord,
+  RecordSummary,
+  RecordType,
+  Reminder,
+  ReminderKind,
+  RepeatRule,
+  SharedPatient,
+  User,
+  UserRole,
+} from '../types';
+import { buildAnalytics } from './analytics';
 import {
   decryptBytes,
   deriveRecordKey,
@@ -11,10 +25,15 @@ import {
   sha256,
   toBase64,
 } from './crypto';
+import { activeCount, groupReminders, nextDueDate, todayIso } from './schedule';
 import {
   type RecordMetadata,
+  type ReminderMetadata,
   STORAGE_BUDGET_BYTES,
+  type StoredAudit,
+  type StoredGrant,
   type StoredRecord,
+  type StoredReminder,
   type StoredUser,
   bytesUsed,
   initStore,
@@ -115,12 +134,140 @@ function ownedRecord(user: StoredUser, recordId: string): StoredRecord {
   return record;
 }
 
+function requireRole(user: StoredUser, role: UserRole): void {
+  if (user.role === role) return;
+  throw new ApiError(
+    403,
+    role === 'DOCTOR'
+      ? 'Only a doctor account can open shared records'
+      : 'Only a patient account can do that',
+  );
+}
+
+function isExpired(grant: StoredGrant, today: string): boolean {
+  return grant.expiresAt !== null && grant.expiresAt < today;
+}
+
+function grantAllows(grant: StoredGrant, recordType: RecordType): boolean {
+  return grant.recordTypes.length === 0 || grant.recordTypes.includes(recordType);
+}
+
+function recordAudit(entry: Omit<StoredAudit, 'id' | 'at'>): void {
+  store.saveAudit([
+    ...store.audit(),
+    { ...entry, id: newId(), at: new Date().toISOString() },
+  ]);
+}
+
+function publicGrant(grant: StoredGrant, patient: StoredUser, doctor: StoredUser): ConsentGrant {
+  return {
+    id: grant.id,
+    patientId: patient.id,
+    patientName: patient.fullName,
+    patientEmail: patient.email,
+    doctorId: doctor.id,
+    doctorName: doctor.fullName,
+    doctorEmail: doctor.email,
+    doctorSpecialty: doctor.specialty,
+    recordTypes: grant.recordTypes,
+    purpose: grant.purpose,
+    createdAt: grant.createdAt,
+    expiresAt: grant.expiresAt,
+  };
+}
+
+async function grantRecordKey(grant: StoredGrant): Promise<string> {
+  const bytes = await decryptBytes(grant.wrapKey, {
+    iv: grant.wrappedIv,
+    ciphertext: grant.wrappedKey,
+  });
+  return new TextDecoder().decode(bytes);
+}
+
+function activeGrantForDoctor(doctor: StoredUser, grantId: string): StoredGrant {
+  const grant = store
+    .grants()
+    .find((candidate) => candidate.id === grantId && candidate.doctorId === doctor.id);
+  if (!grant || isExpired(grant, todayIso())) {
+    throw new ApiError(404, 'This patient is no longer sharing their records with you');
+  }
+  return grant;
+}
+
+function sharedPatientView(grant: StoredGrant, patient: StoredUser): SharedPatient {
+  const recordCount = store
+    .records()
+    .filter((record) => record.ownerId === patient.id && grantAllows(grant, record.recordType))
+    .length;
+
+  return {
+    grantId: grant.id,
+    patientId: patient.id,
+    patientName: patient.fullName,
+    patientEmail: patient.email,
+    dateOfBirth: patient.dateOfBirth,
+    bloodGroup: patient.bloodGroup,
+    recordTypes: grant.recordTypes,
+    purpose: grant.purpose,
+    createdAt: grant.createdAt,
+    expiresAt: grant.expiresAt,
+    recordCount,
+  };
+}
+
+async function decryptRecords(key: string, stored: StoredRecord[]): Promise<MedicalRecord[]> {
+  return Promise.all(stored.map((record) => publicRecord(key, record)));
+}
+
+function ownedRecordsSorted(userId: string): StoredRecord[] {
+  return store
+    .records()
+    .filter((record) => record.ownerId === userId)
+    .sort(
+      (a, b) => b.recordDate.localeCompare(a.recordDate) || b.createdAt.localeCompare(a.createdAt),
+    );
+}
+
+async function publicReminder(key: string, reminder: StoredReminder): Promise<Reminder> {
+  const bytes = await decryptBytes(key, {
+    iv: reminder.metaIv,
+    ciphertext: reminder.metaCipher,
+  });
+  const metadata = JSON.parse(new TextDecoder().decode(bytes)) as ReminderMetadata;
+
+  return {
+    id: reminder.id,
+    kind: reminder.kind,
+    dueDate: reminder.dueDate,
+    dueTime: reminder.dueTime,
+    repeat: reminder.repeat,
+    completedAt: reminder.completedAt,
+    createdAt: reminder.createdAt,
+    relatedRecordId: reminder.relatedRecordId,
+    ...metadata,
+  };
+}
+
+async function ownReminders(user: StoredUser, key: string): Promise<Reminder[]> {
+  const stored = store
+    .reminders()
+    .filter((reminder) => reminder.ownerId === user.id)
+    .sort(
+      (a, b) =>
+        a.dueDate.localeCompare(b.dueDate) || (a.dueTime ?? '').localeCompare(b.dueTime ?? ''),
+    );
+
+  return Promise.all(stored.map((reminder) => publicReminder(key, reminder)));
+}
+
 export interface RegisterPayload {
   email: string;
   password: string;
   fullName: string;
   dateOfBirth?: string;
   bloodGroup?: string;
+  role?: UserRole;
+  specialty?: string;
 }
 
 function validateRegistration(payload: RegisterPayload): ValidationDetail[] {
@@ -137,6 +284,44 @@ function validateRegistration(payload: RegisterPayload): ValidationDetail[] {
   if (payload.dateOfBirth && !/^\d{4}-\d{2}-\d{2}$/.test(payload.dateOfBirth)) {
     details.push({ field: 'dateOfBirth', message: 'Date of birth must be YYYY-MM-DD' });
   }
+  if (payload.role && !USER_ROLES.includes(payload.role)) {
+    details.push({ field: 'role', message: 'Choose whether you are a patient or a doctor' });
+  }
+  return details;
+}
+
+export interface ReminderPayload {
+  kind: ReminderKind;
+  title: string;
+  dueDate: string;
+  dueTime?: string;
+  repeat?: RepeatRule;
+  notes?: string;
+  relatedRecordId?: string;
+}
+
+function validateReminder(payload: ReminderPayload): ValidationDetail[] {
+  const details: ValidationDetail[] = [];
+
+  if (payload.title.trim().length < 2) {
+    details.push({ field: 'title', message: 'Title is required' });
+  }
+  if (payload.title.trim().length > 120) {
+    details.push({ field: 'title', message: 'Title is too long' });
+  }
+  if (!REMINDER_KINDS.includes(payload.kind)) {
+    details.push({ field: 'kind', message: 'Choose a reminder type' });
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(payload.dueDate)) {
+    details.push({ field: 'dueDate', message: 'Due date must be YYYY-MM-DD' });
+  }
+  if (payload.dueTime && !/^\d{2}:\d{2}$/.test(payload.dueTime)) {
+    details.push({ field: 'dueTime', message: 'Time must be HH:MM' });
+  }
+  if (payload.repeat && !REPEAT_RULES.includes(payload.repeat)) {
+    details.push({ field: 'repeat', message: 'Choose how often this repeats' });
+  }
+
   return details;
 }
 
@@ -163,6 +348,32 @@ export const DEMO_CREDENTIALS = {
   fullName: 'Asha Rao',
 } as const;
 
+export const DEMO_DOCTOR_CREDENTIALS = {
+  email: 'dr.iyer@medlog.test',
+  password: 'DemoPass123!',
+  fullName: 'Dr. Priya Iyer',
+  specialty: 'General Medicine',
+} as const;
+
+async function createUser(payload: RegisterPayload): Promise<StoredUser> {
+  const passwordSalt = toBase64(randomBytes(16));
+  const keySalt = toBase64(randomBytes(16));
+
+  return {
+    id: newId(),
+    email: payload.email.trim().toLowerCase(),
+    fullName: payload.fullName.trim(),
+    dateOfBirth: payload.dateOfBirth ?? null,
+    bloodGroup: payload.bloodGroup ?? null,
+    role: payload.role ?? 'PATIENT',
+    specialty: payload.specialty?.trim() || null,
+    createdAt: new Date().toISOString(),
+    passwordSalt,
+    passwordHash: await hashPassword(payload.password, passwordSalt),
+    keySalt,
+  };
+}
+
 export const api = {
   async register(payload: RegisterPayload): Promise<{ user: User }> {
     initStore();
@@ -176,24 +387,10 @@ export const api = {
       throw new ApiError(409, 'An account with this email already exists');
     }
 
-    const passwordSalt = toBase64(randomBytes(16));
-    const keySalt = toBase64(randomBytes(16));
-
-    const user: StoredUser = {
-      id: newId(),
-      email,
-      fullName: payload.fullName.trim(),
-      dateOfBirth: payload.dateOfBirth ?? null,
-      bloodGroup: payload.bloodGroup ?? null,
-      role: 'PATIENT',
-      createdAt: new Date().toISOString(),
-      passwordSalt,
-      passwordHash: await hashPassword(payload.password, passwordSalt),
-      keySalt,
-    };
+    const user = await createUser(payload);
 
     store.saveUsers([...users, user]);
-    store.saveRecordKey(user.id, await deriveRecordKey(payload.password, keySalt));
+    store.saveRecordKey(user.id, await deriveRecordKey(payload.password, user.keySalt));
     store.saveSession(user.id);
 
     return settle({ user: publicUser(user) });
@@ -207,6 +404,14 @@ export const api = {
 
     if (!user && normalised === DEMO_CREDENTIALS.email && password === DEMO_CREDENTIALS.password) {
       return api.signInAsDemoPatient();
+    }
+
+    if (
+      !user &&
+      normalised === DEMO_DOCTOR_CREDENTIALS.email &&
+      password === DEMO_DOCTOR_CREDENTIALS.password
+    ) {
+      return api.signInAsDemoDoctor();
     }
 
     const hash = user ? await hashPassword(password, user.passwordSalt) : null;
@@ -412,6 +617,81 @@ export const api = {
     return seeds.length;
   },
 
+  async seedDemoReminders(): Promise<number> {
+    const today = todayIso();
+    const shift = (days: number) => {
+      const date = new Date(`${today}T00:00:00.000Z`);
+      date.setUTCDate(date.getUTCDate() + days);
+      return date.toISOString().slice(0, 10);
+    };
+
+    const seeds: ReminderPayload[] = [
+      {
+        kind: 'MEDICATION',
+        title: 'Metformin 500mg',
+        dueDate: today,
+        dueTime: '08:00',
+        repeat: 'DAILY',
+        notes: 'One tablet after breakfast',
+      },
+      {
+        kind: 'FOLLOW_UP',
+        title: 'Repeat HbA1c test',
+        dueDate: shift(-3),
+        repeat: 'NONE',
+        notes: 'Overdue since the last consultation',
+      },
+      {
+        kind: 'APPOINTMENT',
+        title: 'Endocrinology review',
+        dueDate: shift(9),
+        dueTime: '10:30',
+        repeat: 'NONE',
+        notes: 'Carry the most recent blood panel',
+      },
+      { kind: 'MEDICATION', title: 'Vitamin D sachet', dueDate: shift(2), repeat: 'WEEKLY' },
+    ];
+
+    for (const seed of seeds) await api.createReminder(seed);
+
+    return seeds.length;
+  },
+
+  async ensureDemoDoctorAccess(): Promise<void> {
+    const users = store.users();
+    let doctor = users.find((user) => user.email === DEMO_DOCTOR_CREDENTIALS.email);
+
+    if (!doctor) {
+      doctor = await createUser({
+        email: DEMO_DOCTOR_CREDENTIALS.email,
+        password: DEMO_DOCTOR_CREDENTIALS.password,
+        fullName: DEMO_DOCTOR_CREDENTIALS.fullName,
+        role: 'DOCTOR',
+        specialty: DEMO_DOCTOR_CREDENTIALS.specialty,
+      });
+      store.saveUsers([...users, doctor]);
+    }
+
+    const patient = store.users().find((user) => user.email === DEMO_CREDENTIALS.email);
+    const session = store.session();
+    if (!patient || session?.userId !== patient.id) return;
+
+    const alreadyShared = store
+      .grants()
+      .some(
+        (grant) =>
+          grant.patientId === patient.id &&
+          grant.doctorId === doctor.id &&
+          !isExpired(grant, todayIso()),
+      );
+    if (alreadyShared) return;
+
+    await api.grantConsent({
+      doctorEmail: DEMO_DOCTOR_CREDENTIALS.email,
+      purpose: 'Ongoing diabetes review',
+    });
+  },
+
   async signInAsDemoPatient(): Promise<{ user: User }> {
     initStore();
 
@@ -429,7 +709,430 @@ export const api = {
     });
 
     await api.seedDemoRecords();
+    await api.seedDemoReminders();
+    await api.ensureDemoDoctorAccess();
+
     return session;
+  },
+
+  async signInAsDemoDoctor(): Promise<{ user: User }> {
+    initStore();
+
+    const existing = store.users().some((user) => user.email === DEMO_DOCTOR_CREDENTIALS.email);
+    if (!existing) {
+      await api.signInAsDemoPatient();
+      await api.ensureDemoDoctorAccess();
+      api.logout();
+    }
+
+    return api.login(DEMO_DOCTOR_CREDENTIALS.email, DEMO_DOCTOR_CREDENTIALS.password);
+  },
+
+  async grantConsent(payload: {
+    doctorEmail: string;
+    recordTypes?: RecordType[];
+    purpose?: string;
+    expiresAt?: string;
+  }): Promise<{ grant: ConsentGrant }> {
+    const patient = currentUser();
+    requireRole(patient, 'PATIENT');
+    const key = recordKeyFor(patient);
+
+    const email = payload.doctorEmail.trim().toLowerCase();
+    const doctor = store
+      .users()
+      .find((candidate) => candidate.email === email && candidate.role === 'DOCTOR');
+
+    if (!doctor) {
+      throw new ApiError(404, 'No doctor is registered with that email address');
+    }
+
+    if (payload.expiresAt) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(payload.expiresAt)) {
+        throw new ApiError(400, 'Validation failed', [
+          { field: 'expiresAt', message: 'Expiry date must be YYYY-MM-DD' },
+        ]);
+      }
+      if (payload.expiresAt < todayIso()) {
+        throw new ApiError(400, 'Validation failed', [
+          { field: 'expiresAt', message: 'Expiry date must be in the future' },
+        ]);
+      }
+    }
+
+    const grants = store.grants();
+    const today = todayIso();
+    if (
+      grants.some(
+        (grant) =>
+          grant.patientId === patient.id &&
+          grant.doctorId === doctor.id &&
+          !isExpired(grant, today),
+      )
+    ) {
+      throw new ApiError(409, 'That doctor already has access to your records');
+    }
+
+    const wrapKey = toBase64(randomBytes(32));
+    const wrapped = await encryptBytes(wrapKey, new TextEncoder().encode(key));
+
+    const grant: StoredGrant = {
+      id: newId(),
+      patientId: patient.id,
+      doctorId: doctor.id,
+      recordTypes: payload.recordTypes ?? [],
+      purpose: payload.purpose?.trim() || null,
+      createdAt: new Date().toISOString(),
+      expiresAt: payload.expiresAt ?? null,
+      wrapKey,
+      wrappedIv: wrapped.iv,
+      wrappedKey: wrapped.ciphertext,
+    };
+
+    store.saveGrants([...grants, grant]);
+    recordAudit({
+      patientId: patient.id,
+      actorId: patient.id,
+      actorRole: 'PATIENT',
+      action: 'CONSENT_GRANTED',
+      recordId: null,
+      detail: `${doctor.fullName} (${doctor.email})`,
+    });
+
+    return settle({ grant: publicGrant(grant, patient, doctor) });
+  },
+
+  async revokeConsent(grantId: string): Promise<void> {
+    const patient = currentUser();
+    requireRole(patient, 'PATIENT');
+
+    const grant = store
+      .grants()
+      .find((candidate) => candidate.id === grantId && candidate.patientId === patient.id);
+    if (!grant) throw new ApiError(404, 'That access grant was not found');
+
+    const doctor = store.users().find((candidate) => candidate.id === grant.doctorId);
+
+    store.saveGrants(store.grants().filter((candidate) => candidate.id !== grant.id));
+    recordAudit({
+      patientId: patient.id,
+      actorId: patient.id,
+      actorRole: 'PATIENT',
+      action: 'CONSENT_REVOKED',
+      recordId: null,
+      detail: doctor ? `${doctor.fullName} (${doctor.email})` : null,
+    });
+
+    return settle(undefined);
+  },
+
+  async listConsentGrants(): Promise<{ grants: ConsentGrant[] }> {
+    const patient = currentUser();
+    requireRole(patient, 'PATIENT');
+
+    const users = store.users();
+    const grants = store
+      .grants()
+      .filter((grant) => grant.patientId === patient.id)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .flatMap((grant) => {
+        const doctor = users.find((candidate) => candidate.id === grant.doctorId);
+        return doctor ? [publicGrant(grant, patient, doctor)] : [];
+      });
+
+    return settle({ grants });
+  },
+
+  async listSharedPatients(): Promise<{ patients: SharedPatient[] }> {
+    const doctor = currentUser();
+    requireRole(doctor, 'DOCTOR');
+
+    const users = store.users();
+    const today = todayIso();
+    const patients = store
+      .grants()
+      .filter((grant) => grant.doctorId === doctor.id && !isExpired(grant, today))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .flatMap((grant) => {
+        const patient = users.find((candidate) => candidate.id === grant.patientId);
+        return patient ? [sharedPatientView(grant, patient)] : [];
+      });
+
+    return settle({ patients });
+  },
+
+  async listSharedRecords(
+    grantId: string,
+    filters: { recordType?: string; search?: string } = {},
+  ): Promise<{ patient: SharedPatient; records: MedicalRecord[] }> {
+    const doctor = currentUser();
+    requireRole(doctor, 'DOCTOR');
+
+    const grant = activeGrantForDoctor(doctor, grantId);
+    const patient = store.users().find((candidate) => candidate.id === grant.patientId);
+    if (!patient) throw new ApiError(404, 'That patient account no longer exists');
+
+    const key = await grantRecordKey(grant);
+    const search = filters.search?.trim().toLowerCase();
+
+    const stored = ownedRecordsSorted(grant.patientId)
+      .filter((record) => grantAllows(grant, record.recordType))
+      .filter((record) => !filters.recordType || record.recordType === filters.recordType);
+
+    const decoded = await decryptRecords(key, stored);
+    const records = search
+      ? decoded.filter(
+          (record) =>
+            record.title.toLowerCase().includes(search) ||
+            (record.providerName ?? '').toLowerCase().includes(search),
+        )
+      : decoded;
+
+    recordAudit({
+      patientId: grant.patientId,
+      actorId: doctor.id,
+      actorRole: 'DOCTOR',
+      action: 'RECORDS_VIEWED',
+      recordId: null,
+      detail: `${records.length} record(s)`,
+    });
+
+    return settle({ patient: sharedPatientView(grant, patient), records });
+  },
+
+  async readSharedRecordFile(
+    grantId: string,
+    recordId: string,
+  ): Promise<{ record: MedicalRecord; bytes: Uint8Array }> {
+    const doctor = currentUser();
+    requireRole(doctor, 'DOCTOR');
+
+    const grant = activeGrantForDoctor(doctor, grantId);
+    const stored = store
+      .records()
+      .find((candidate) => candidate.id === recordId && candidate.ownerId === grant.patientId);
+
+    if (!stored) throw new ApiError(404, 'Record not found');
+
+    if (!grantAllows(grant, stored.recordType)) {
+      recordAudit({
+        patientId: grant.patientId,
+        actorId: doctor.id,
+        actorRole: 'DOCTOR',
+        action: 'ACCESS_DENIED',
+        recordId: stored.id,
+        detail: 'Record type outside the consent scope',
+      });
+      throw new ApiError(404, 'Record not found');
+    }
+
+    const ciphertext = store.blob(stored.id);
+    if (!ciphertext) throw new ApiError(404, 'The stored file is missing');
+
+    const key = await grantRecordKey(grant);
+    const bytes = await decryptBytes(key, { iv: stored.iv, ciphertext });
+    if ((await sha256(bytes)) !== stored.checksum) {
+      throw new ApiError(422, 'This record failed its integrity check and was not opened');
+    }
+
+    recordAudit({
+      patientId: grant.patientId,
+      actorId: doctor.id,
+      actorRole: 'DOCTOR',
+      action: 'RECORD_OPENED',
+      recordId: stored.id,
+      detail: null,
+    });
+
+    return { record: await publicRecord(key, stored), bytes };
+  },
+
+  async downloadSharedRecord(grantId: string, record: MedicalRecord): Promise<void> {
+    const { bytes } = await api.readSharedRecordFile(grantId, record.id);
+    const grant = store.grants().find((candidate) => candidate.id === grantId);
+
+    if (grant) {
+      recordAudit({
+        patientId: grant.patientId,
+        actorId: currentUser().id,
+        actorRole: 'DOCTOR',
+        action: 'RECORD_DOWNLOADED',
+        recordId: record.id,
+        detail: null,
+      });
+    }
+
+    const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: record.mimeType }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = record.originalFilename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  },
+
+  async listAuditTrail(): Promise<{ entries: AuditEntry[] }> {
+    const patient = currentUser();
+    requireRole(patient, 'PATIENT');
+    const key = recordKeyFor(patient);
+
+    const users = store.users();
+    const owned = new Map(
+      store.records().filter((record) => record.ownerId === patient.id).map((r) => [r.id, r]),
+    );
+
+    const entries = await Promise.all(
+      store
+        .audit()
+        .filter((entry) => entry.patientId === patient.id)
+        .sort((a, b) => b.at.localeCompare(a.at))
+        .map(async (entry) => {
+          const actor = users.find((candidate) => candidate.id === entry.actorId);
+          const record = entry.recordId ? owned.get(entry.recordId) : undefined;
+
+          return {
+            id: entry.id,
+            patientId: entry.patientId,
+            actorId: entry.actorId,
+            actorName: actor?.fullName ?? 'A removed account',
+            actorRole: entry.actorRole,
+            action: entry.action,
+            recordId: entry.recordId,
+            recordTitle: record ? (await publicRecord(key, record)).title : null,
+            detail: entry.detail,
+            at: entry.at,
+          } satisfies AuditEntry;
+        }),
+    );
+
+    return settle({ entries });
+  },
+
+  async listReminders(): Promise<{ reminders: Reminder[] }> {
+    const user = currentUser();
+    requireRole(user, 'PATIENT');
+    const key = recordKeyFor(user);
+
+    return settle({ reminders: await ownReminders(user, key) });
+  },
+
+  async createReminder(payload: ReminderPayload): Promise<{ reminder: Reminder }> {
+    const user = currentUser();
+    requireRole(user, 'PATIENT');
+    const key = recordKeyFor(user);
+
+    const details = validateReminder(payload);
+    if (details.length > 0) throw new ApiError(400, 'Validation failed', details);
+
+    const metadata: ReminderMetadata = {
+      title: payload.title.trim(),
+      notes: payload.notes?.trim() || null,
+    };
+    const bytes = new TextEncoder().encode(JSON.stringify(metadata));
+    const blob = await encryptBytes(key, bytes);
+
+    const reminder: StoredReminder = {
+      id: newId(),
+      ownerId: user.id,
+      kind: payload.kind,
+      dueDate: payload.dueDate,
+      dueTime: payload.dueTime?.trim() || null,
+      repeat: payload.repeat ?? 'NONE',
+      completedAt: null,
+      createdAt: new Date().toISOString(),
+      relatedRecordId: payload.relatedRecordId ?? null,
+      metaIv: blob.iv,
+      metaCipher: blob.ciphertext,
+    };
+
+    try {
+      store.saveReminders([...store.reminders(), reminder]);
+    } catch (error) {
+      if (isQuotaError(error)) {
+        throw new ApiError(507, 'Browser storage is full. Delete something to free space.');
+      }
+      throw error;
+    }
+
+    return settle({ reminder: await publicReminder(key, reminder) });
+  },
+
+  async completeReminder(reminderId: string): Promise<{ reminder: Reminder }> {
+    const user = currentUser();
+    requireRole(user, 'PATIENT');
+    const key = recordKeyFor(user);
+
+    const reminders = store.reminders();
+    const existing = reminders.find(
+      (candidate) => candidate.id === reminderId && candidate.ownerId === user.id,
+    );
+    if (!existing) throw new ApiError(404, 'Reminder not found');
+
+    const updated: StoredReminder =
+      existing.repeat === 'NONE'
+        ? { ...existing, completedAt: new Date().toISOString() }
+        : { ...existing, dueDate: nextDueDate(existing.dueDate, existing.repeat) };
+
+    store.saveReminders(
+      reminders.map((candidate) => (candidate.id === updated.id ? updated : candidate)),
+    );
+
+    return settle({ reminder: await publicReminder(key, updated) });
+  },
+
+  async reopenReminder(reminderId: string): Promise<{ reminder: Reminder }> {
+    const user = currentUser();
+    requireRole(user, 'PATIENT');
+    const key = recordKeyFor(user);
+
+    const reminders = store.reminders();
+    const existing = reminders.find(
+      (candidate) => candidate.id === reminderId && candidate.ownerId === user.id,
+    );
+    if (!existing) throw new ApiError(404, 'Reminder not found');
+
+    const updated: StoredReminder = { ...existing, completedAt: null };
+    store.saveReminders(
+      reminders.map((candidate) => (candidate.id === updated.id ? updated : candidate)),
+    );
+
+    return settle({ reminder: await publicReminder(key, updated) });
+  },
+
+  async deleteReminder(reminderId: string): Promise<void> {
+    const user = currentUser();
+    requireRole(user, 'PATIENT');
+
+    const reminders = store.reminders();
+    const existing = reminders.find(
+      (candidate) => candidate.id === reminderId && candidate.ownerId === user.id,
+    );
+    if (!existing) throw new ApiError(404, 'Reminder not found');
+
+    store.saveReminders(reminders.filter((candidate) => candidate.id !== existing.id));
+    return settle(undefined);
+  },
+
+  async analytics(): Promise<HealthAnalytics> {
+    const user = currentUser();
+    requireRole(user, 'PATIENT');
+    const key = recordKeyFor(user);
+    const today = todayIso();
+
+    const records = await decryptRecords(key, ownedRecordsSorted(user.id));
+    const reminders = await ownReminders(user, key);
+    const doctorsWithAccess = store
+      .grants()
+      .filter((grant) => grant.patientId === user.id && !isExpired(grant, today)).length;
+
+    return settle(
+      buildAnalytics(records, {
+        today,
+        activeReminders: activeCount(groupReminders(reminders, today)),
+        doctorsWithAccess,
+      }),
+    );
   },
 
   inspectRawStorage(recordId: string): string | null {

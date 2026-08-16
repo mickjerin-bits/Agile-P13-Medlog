@@ -1,15 +1,25 @@
-import type { MedicalRecord } from '../types';
+import type {
+  AuditAction,
+  MedicalRecord,
+  RecordType,
+  ReminderKind,
+  RepeatRule,
+  UserRole,
+} from '../types';
 
 const KEYS = {
   version: 'medlog.version',
   users: 'medlog.users',
   records: 'medlog.records',
+  grants: 'medlog.grants',
+  audit: 'medlog.audit',
+  reminders: 'medlog.reminders',
   session: 'medlog.session',
   key: (userId: string) => `medlog.key.${userId}`,
   blob: (recordId: string) => `medlog.blob.${recordId}`,
 } as const;
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const STORAGE_BUDGET_BYTES = 5 * 1024 * 1024;
 
@@ -19,7 +29,8 @@ export interface StoredUser {
   fullName: string;
   dateOfBirth: string | null;
   bloodGroup: string | null;
-  role: string;
+  role: UserRole;
+  specialty: string | null;
   createdAt: string;
   passwordSalt: string;
   passwordHash: string;
@@ -45,6 +56,49 @@ export interface RecordMetadata {
   providerName: string | null;
   notes: string | null;
   originalFilename: string;
+}
+
+export interface StoredGrant {
+  id: string;
+  patientId: string;
+  doctorId: string;
+  recordTypes: RecordType[];
+  purpose: string | null;
+  createdAt: string;
+  expiresAt: string | null;
+  wrapKey: string;
+  wrappedIv: string;
+  wrappedKey: string;
+}
+
+export interface StoredAudit {
+  id: string;
+  patientId: string;
+  actorId: string;
+  actorRole: UserRole;
+  action: AuditAction;
+  recordId: string | null;
+  detail: string | null;
+  at: string;
+}
+
+export interface StoredReminder {
+  id: string;
+  ownerId: string;
+  kind: ReminderKind;
+  dueDate: string;
+  dueTime: string | null;
+  repeat: RepeatRule;
+  completedAt: string | null;
+  createdAt: string;
+  relatedRecordId: string | null;
+  metaIv: string;
+  metaCipher: string;
+}
+
+export interface ReminderMetadata {
+  title: string;
+  notes: string | null;
 }
 
 function read<T>(key: string, fallback: T): T {
@@ -74,6 +128,15 @@ export const store = {
 
   records: () => read<StoredRecord[]>(KEYS.records, []),
   saveRecords: (records: StoredRecord[]) => write(KEYS.records, records),
+
+  grants: () => read<StoredGrant[]>(KEYS.grants, []),
+  saveGrants: (grants: StoredGrant[]) => write(KEYS.grants, grants),
+
+  audit: () => read<StoredAudit[]>(KEYS.audit, []),
+  saveAudit: (entries: StoredAudit[]) => write(KEYS.audit, entries),
+
+  reminders: () => read<StoredReminder[]>(KEYS.reminders, []),
+  saveReminders: (reminders: StoredReminder[]) => write(KEYS.reminders, reminders),
 
   session: () => read<{ userId: string } | null>(KEYS.session, null),
   saveSession: (userId: string) => write(KEYS.session, { userId }),
