@@ -13,6 +13,7 @@ deploys as static files to any free host.
 
 | | |
 |---|---|
+| Live demo | https://medlog-p13-group9.netlify.app |
 | Repository | https://github.com/mickjerin-bits/Agile-P13-Medlog |
 | Jira board | https://wilp-agile-group9.atlassian.net/jira/software/projects/AP/boards/2 |
 | Sprint 1 goal | Record upload, secure storage, patient dashboard |
@@ -74,7 +75,7 @@ frontend/src/
 
 `mock/api.ts` deliberately mirrors a real HTTP client — it is `async`, it throws `ApiError` with
 status codes, and it adds a small artificial latency so loading and error states are real. Swapping
-it for `fetch` calls in Sprint 2 means rewriting one file.
+it for `fetch` calls means rewriting one file.
 
 See [architecture/README.md](architecture/README.md) for the data model and the full API surface.
 
@@ -90,7 +91,8 @@ data, and each record carries a SHA-256 checksum that is re-verified on read.
 **What this does not give you:** with no server, the derived key has to live in `localStorage`
 alongside the ciphertext, so anyone with access to the browser profile can decrypt. The encryption
 demonstrates the Sprint 1 data flow and protects against casual inspection — it is **not** real
-protection for real patient data. Proper key custody needs the server that arrives in Sprint 2.
+protection for real patient data. Proper key custody needs a real backend, which stayed out of
+scope for both sprints.
 **Do not put real medical records in this prototype.**
 
 ## Sprint 1 backlog → implementation
@@ -116,6 +118,7 @@ protection for real patient data. Proper key custody needs the server that arriv
 | Requirements and design baseline produced before development | [architecture/epic-0-requirements-and-design.md](architecture/epic-0-requirements-and-design.md) |
 | Architecture, data model, security decisions | [architecture/README.md](architecture/README.md) |
 | Continuous integration | [.github/workflows/ci.yml](.github/workflows/ci.yml) |
+| Continuous deployment | [.github/workflows/deploy.yml](.github/workflows/deploy.yml) |
 
 Sprint 1 closed **16 items / 58 story points**, including one mid-sprint scope change (dropping the
 server for a browser-side mock), one defect found during review preparation, and one security gap
@@ -127,8 +130,10 @@ board totals 61 points across 17 delivered items.
 
 ## Deploying the demo
 
-Merging to `main` builds and deploys to Netlify automatically via
-[.github/workflows/deploy.yml](.github/workflows/deploy.yml); tests gate every pull request first.
+The demo is live at **https://medlog-p13-group9.netlify.app**. Merging to `main` builds and deploys
+there automatically via [.github/workflows/deploy.yml](.github/workflows/deploy.yml), which re-runs
+typecheck, the tests and the production build before publishing, so a red `main` never reaches the
+live site. Tests gate every pull request first.
 
 To build it yourself:
 
@@ -136,9 +141,11 @@ To build it yourself:
 cd frontend && npm run build
 ```
 
-The output in `frontend/dist` is static, so any free host works. For GitHub Pages set
-`VITE_BASE_PATH=/Agile-P13-Medlog/` before building. Configure the host to serve `index.html` for
-unknown paths so client-side routing works on refresh.
+The output in `frontend/dist` is static, so any free host works. The fallback that client-side
+routing needs on refresh ships with the repo — `netlify.toml` for Netlify, and
+`frontend/public/_redirects`, which Vite copies into `dist` so the rule travels with the
+bundle. On a host that reads neither, configure it to serve `index.html` for unknown paths.
+For GitHub Pages set `VITE_BASE_PATH=/Agile-P13-Medlog/` before building.
 
 ## Sprint 2 — doctor access, analytics, reminders
 
