@@ -25,10 +25,21 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="app-nav">
-          <NavLink to="/" end>
-            Dashboard
-          </NavLink>
-          <NavLink to="/records">My records</NavLink>
+          {user!.role === 'DOCTOR' ? (
+            <NavLink to="/" end>
+              Shared with me
+            </NavLink>
+          ) : (
+            <>
+              <NavLink to="/" end>
+                Dashboard
+              </NavLink>
+              <NavLink to="/records">My records</NavLink>
+              <NavLink to="/reminders">Reminders</NavLink>
+              <NavLink to="/analytics">Trends</NavLink>
+              <NavLink to="/sharing">Doctor access</NavLink>
+            </>
+          )}
         </nav>
 
         <div className="app-user">
@@ -37,7 +48,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           </span>
           <div className="app-user-meta">
             <span className="app-user-name">{user!.fullName}</span>
-            <span className="muted small">{user!.email}</span>
+            <span className="muted small">
+              {user!.role === 'DOCTOR'
+                ? (user!.specialty ?? 'Doctor')
+                : user!.email}
+            </span>
           </div>
           <button type="button" className="btn btn-ghost" onClick={logout}>
             Sign out
